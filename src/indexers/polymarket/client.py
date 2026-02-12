@@ -4,10 +4,11 @@ from typing import Optional, Union
 import httpx
 
 from src.common.client import retry_request
-from src.indexers.polymarket.models import Market, Trade
+from src.indexers.polymarket.models import Market, PricePoint, Trade
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
 DATA_API_URL = "https://data-api.polymarket.com"
+CLOB_API_URL = "https://clob.polymarket.com"
 
 
 class PolymarketClient:
@@ -15,9 +16,11 @@ class PolymarketClient:
         self,
         gamma_url: str = GAMMA_API_URL,
         data_url: str = DATA_API_URL,
+        clob_url: str = CLOB_API_URL,
     ):
         self.gamma_url = gamma_url
         self.data_url = data_url
+        self.clob_url = clob_url
         self.client = httpx.Client(timeout=30.0)
 
     def __enter__(self):
@@ -107,3 +110,78 @@ class PolymarketClient:
                 break
 
             current_offset = next_offset
+
+    def get_market_trades(self, token_id: str, cursor: Optional[str] = None) -> tuple[list[Trade], Optional[str]]:
+        """Fetch trades for a specific market token from the CLOB API.
+
+        Args:
+            token_id: The CLOB token ID for a specific outcome.
+            cursor: Pagination cursor from a previous response.
+
+        Returns:
+            Tuple of (trades, next_cursor). next_cursor is None when no more pages.
+        """
+        params: dict = {"asset_id": token_id}
+        if cursor:
+            params["cursor"] = cursor
+
+        data = self._get(f"{self.clob_url}/trades", params=params)
+
+        trades: list[Trade] = []
+        next_cursor = None
+
+        if isinstance(data, dict):
+            trades = [Trade.from_dict(t) for t in data.get("data", [])]
+            next_cursor = data.get("next_cursor")
+            if next_cursor == "LTE=":
+                next_cursor = None
+        elif isinstance(data, list):
+            trades = [Trade.from_dict(t) for t in data]
+
+        return trades, next_cursor
+
+    def get_all_market_trades(self, token_id: str) -> list[Trade]:
+        """Fetch all trades for a specific market token, handling pagination."""
+        all_trades: list[Trade] = []
+        cursor = None
+
+        while True:
+            trades, next_cursor = self.get_market_trades(token_id, cursor=cursor)
+            if trades:
+                all_trades.extend(trades)
+            if not next_cursor:
+                break
+            cursor = next_cursor
+
+        return all_trades
+
+    def get_price_history(
+        self,
+        token_id: str,
+        interval: str = "all",
+        fidelity: int = 60,
+    ) -> list[PricePoint]:
+        """Fetch OHLCV price history for a market token from the CLOB API.
+
+        Args:
+            token_id: The CLOB token ID for a specific outcome.
+            interval: Time range - "all", "1w", "1d", "6h", "1h".
+            fidelity: Candle resolution in minutes (1, 5, 60, etc.).
+
+        Returns:
+            List of PricePoint candles.
+        """
+        params = {
+            "market": token_id,
+            "interval": interval,
+            "fidelity": fidelity,
+        }
+        data = self._get(f"{self.clob_url}/prices-history", params=params)
+
+        points: list[dict] = []
+        if isinstance(data, dict):
+            points = data.get("history", [])
+        elif isinstance(data, list):
+            points = data
+
+        return [PricePoint.from_dict(p, token_id=token_id) for p in points]
