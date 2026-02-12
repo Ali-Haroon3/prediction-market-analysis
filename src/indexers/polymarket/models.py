@@ -4,6 +4,31 @@ from typing import Optional
 
 
 @dataclass
+class PricePoint:
+    """A single OHLC price candle from the CLOB API."""
+
+    timestamp: int  # Unix timestamp (seconds)
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    token_id: str  # Which outcome token this price is for
+
+    @classmethod
+    def from_dict(cls, data: dict, token_id: str = "") -> "PricePoint":
+        return cls(
+            timestamp=int(data.get("t", 0)),
+            open=float(data.get("o", 0)),
+            high=float(data.get("h", 0)),
+            low=float(data.get("l", 0)),
+            close=float(data.get("c", 0)),
+            volume=float(data.get("v", 0) or 0),
+            token_id=token_id,
+        )
+
+
+@dataclass
 class Market:
     id: str
     condition_id: str

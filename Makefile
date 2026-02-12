@@ -1,4 +1,4 @@
-.PHONY: analyze run index package lint format test setup
+.PHONY: analyze run index package lint format test setup export-weather
 
 RUN = uv run main.py
 
@@ -24,6 +24,9 @@ format:
 
 test:
 	uv run pytest tests/ -v
+
+export-weather:
+	uv run scripts/export_weather_json.py
 
 setup:
 	bash scripts/install-tools.sh
